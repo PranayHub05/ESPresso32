@@ -1,8 +1,6 @@
 package com.pranay.espresso32
 
 import com.pranay.espresso32.data.model.ESP32MessageDto
-import com.pranay.espresso32.domain.model.SensorType
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
@@ -56,7 +54,7 @@ class JsonParsingTest {
 
         assertNull(result.device)
         assertNotNull(result.data)
-        assertEquals(28.6, result.data!!["temperature"]!!.jsonPrimitive.doubleOrNull)
+        assertEquals(28.6, result.data?.get("temperature")?.jsonPrimitive?.doubleOrNull)
     }
 
     @Test
@@ -117,7 +115,7 @@ class JsonParsingTest {
 
         val result = json.decodeFromString<ESP32MessageDto>(input)
 
-        assertTrue(result.data!!["motion"]!!.jsonPrimitive.booleanOrNull == true)
+        assertTrue(result.data?.get("motion")?.jsonPrimitive?.booleanOrNull == true)
     }
 
     @Test
@@ -126,7 +124,7 @@ class JsonParsingTest {
 
         val result = json.decodeFromString<ESP32MessageDto>(input)
 
-        assertEquals("normal", result.data!!["status"]!!.jsonPrimitive.content)
+        assertEquals("normal", result.data?.get("status")?.jsonPrimitive?.content)
     }
 
     @Test
@@ -145,10 +143,12 @@ class JsonParsingTest {
 
         val result = json.decodeFromString<ESP32MessageDto>(input)
 
-        assertEquals(5, result.data?.size)
-        assertNotNull(result.data!!["pressure"])
-        assertNotNull(result.data!!["voltage"])
-        assertNotNull(result.data!!["current"])
+        val data = result.data
+        assertNotNull(data)
+        assertEquals(5, data?.size)
+        assertNotNull(data?.get("pressure"))
+        assertNotNull(data?.get("voltage"))
+        assertNotNull(data?.get("current"))
     }
 
     @Test(expected = Exception::class)
@@ -167,8 +167,10 @@ class JsonParsingTest {
 
         val result = json.decodeFromString<ESP32MessageDto>(input)
 
-        assertEquals(740.0, result.data!!["light"]!!.jsonPrimitive.doubleOrNull)
-        assertEquals(87.0, result.data!!["battery"]!!.jsonPrimitive.doubleOrNull)
+        val data = result.data
+        assertNotNull(data)
+        assertEquals(740.0, data?.get("light")?.jsonPrimitive?.doubleOrNull)
+        assertEquals(87.0, data?.get("battery")?.jsonPrimitive?.doubleOrNull)
     }
 }
 
@@ -213,15 +215,10 @@ class ExtensionsTest {
 
     @Test
     fun `valid IP addresses`() {
-        assertTrue("192.168.1.50".let {
-            "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$".toRegex().matches(it)
-        })
-        assertTrue("10.0.0.1".let {
-            "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$".toRegex().matches(it)
-        })
-        assertTrue("255.255.255.255".let {
-            "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$".toRegex().matches(it)
-        })
+        val regex = "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$".toRegex()
+        assertTrue(regex.matches("192.168.1.50"))
+        assertTrue(regex.matches("10.0.0.1"))
+        assertTrue(regex.matches("255.255.255.255"))
     }
 
     @Test

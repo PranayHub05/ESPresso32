@@ -17,9 +17,11 @@ import java.util.concurrent.TimeUnit
 class WebSocketClient {
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(8, TimeUnit.SECONDS)
+        .pingInterval(10, TimeUnit.SECONDS) // Keep-alive ping every 10s
+        .retryOnConnectionFailure(false)    // Handled by our repository exponential backoff
         .build()
 
     private var webSocket: WebSocket? = null
@@ -33,44 +35,75 @@ class WebSocketClient {
     private val _lastMessageTime = MutableStateFlow(0L)
     val lastMessageTime: StateFlow<Long> = _lastMessageTime.asStateFlow()
 
+    @Synchronized
     fun connect(ip: String, port: Int) {
-        if (_connectionState.value is ConnectionState.Connecting || _connectionState.value is ConnectionState.Connected) return
-        
+        // Cancel previous instance if any
+        webSocket?.cancel()
+        webSocket = null
+
         _connectionState.value = ConnectionState.Connecting
         val url = "ws://$ip:$port"
         val request = Request.Builder().url(url).build()
 
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+        val wsListener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                _connectionState.value = ConnectionState.Connected(DeviceInfo(ipAddress = ip, port = port))
+                // Ensure this event belongs to the current active websocket
+                if (webSocket === this@WebSocketClient.webSocket) {
+                    _connectionState.value = ConnectionState.Connected(DeviceInfo(ipAddress = ip, port = port))
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                _lastMessageTime.value = System.currentTimeMillis()
-                _messages.tryEmit(text)
+                if (webSocket === this@WebSocketClient.webSocket) {
+                    _lastMessageTime.value = System.currentTimeMillis()
+                    _messages.tryEmit(text)
+                }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                webSocket.close(1000, null)
+                if (webSocket === this@WebSocketClient.webSocket) {
+                    webSocket.close(1000, null)
+                }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                _connectionState.value = ConnectionState.Disconnected
+                if (webSocket === this@WebSocketClient.webSocket) {
+                    _connectionState.value = ConnectionState.Disconnected
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                _connectionState.value = ConnectionState.Error(t.message ?: "Unknown error", t)
+                if (webSocket === this@WebSocketClient.webSocket) {
+                    val errMsg = when {
+                        t.message?.contains("Failed to connect", ignoreCase = true) == true -> "Failed to connect to $ip:$port"
+                        t.message?.contains("Software caused connection abort", ignoreCase = true) == true -> "Connection lost"
+                        t.message?.contains("timeout", ignoreCase = true) == true -> "Connection timed out"
+                        else -> t.message ?: "Connection error"
+                    }
+                    _connectionState.value = ConnectionState.Error(errMsg, t)
+                }
             }
-        })
+        }
+
+        webSocket = client.newWebSocket(request, wsListener)
     }
 
+    @Synchronized
     fun disconnect() {
-        webSocket?.close(1000, "User requested disconnect")
+        val currentWs = webSocket
         webSocket = null
+        currentWs?.cancel()
+        try {
+            currentWs?.close(1000, "User requested disconnect")
+        } catch (_: Exception) {}
         _connectionState.value = ConnectionState.Disconnected
     }
 
-    fun sendMessage(message: String) {
-        webSocket?.send(message)
+    fun setReconnectingState(attempt: Int) {
+        _connectionState.value = ConnectionState.Reconnecting(attempt)
+    }
+
+    fun sendMessage(message: String): Boolean {
+        return webSocket?.send(message) ?: false
     }
 }

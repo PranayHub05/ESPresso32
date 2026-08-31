@@ -27,9 +27,14 @@ object ESPresso32App {
     private var _preferences: AppPreferences? = null
 
     val webSocketClient: WebSocketClient get() = _webSocketClient ?: WebSocketClient().also { _webSocketClient = it }
-    val repository: ESP32Repository get() = _repository ?: ESP32Repository(webSocketClient).also { _repository = it }
+    val repository: ESP32Repository get() = _repository ?: ESP32Repository(webSocketClient, _preferences).also { _repository = it }
     fun discoveryService(): DiscoveryService = _discoveryService ?: DiscoveryService().also { _discoveryService = it }
-    fun preferences(context: Context): AppPreferences = _preferences ?: AppPreferences(context.applicationContext).also { _preferences = it }
+    fun preferences(context: Context): AppPreferences = _preferences ?: AppPreferences(context.applicationContext).also { 
+        _preferences = it
+        if (_repository == null) {
+            _repository = ESP32Repository(webSocketClient, it)
+        }
+    }
 }
 
 class MainActivity : ComponentActivity() {
